@@ -8,6 +8,9 @@
 import mysql.connector
 from netaddr import iter_iprange,IPNetwork
 import csv
+from otrs.ticket.template import GenericTicketConnectorSOAP
+from otrs.client import GenericInterfaceClient
+from otrs.ticket.objects import Ticket, Article, DynamicField, Attachment
 
 #datos para la conexion a la base de datos
 config = {
@@ -32,9 +35,13 @@ def getIPS( conn ) :
 #funcion que optiene los datos de un administrador
 def dataAdmin( conn , admin_id):
     cur = conn.cursor()
-    cur.execute( "SELECT correo FROM administrador WHERE administrador_id="+str(admin_id) )
-    for correo in cur.fetchall():
-        print str(correo)
+    cur.execute( "SELECT nombre,correo FROM administrador WHERE administrador_id="+str(admin_id) )
+    admins=[]
+    for nombre,correo in cur.fetchall():
+    	datos=[str(nombre),str(correo)]
+    	admins.append(datos)
+        print nombre,correo
+    return admins
 
 #funcion que obtiene el id del administrador al cual petenece una determinadad IP
 def buscaIP (ips,encontrar) :
@@ -65,13 +72,33 @@ def readCSV(archivo):
 				lista.append(row)
 	return lista
 
+
+#funcion que crea un ticket
+def createTicket(titulo,asunto,cuerpo,responsable):
+	server_uri = r'http://localhost/otrs/nph-genericinterface.pl'
+	webservice_name = 'GenericTicketConnectorSOAP'
+	client = GenericInterfaceClient(server_uri, tc=GenericTicketConnectorSOAP(webservice_name))
+
+	client.tc.SessionCreate(user_login='jmartinez', password='hola123,')
+
+	import mimetypes
+	import base64
+
+	t = Ticket(State='new', Priority='3 normal', Queue='Postmaster',Title=titulo, CustomerUser='fernando@gmail.com',Responsible=responsable)
+	a = Article(NoAgentNotify=1,Subject=asunto,Body=cuerpo,Charset='UTF8',MimeType='text/plain',SenderType='customer',ArticleType='email-external',From='fernando@gmail.com',To=responsable)
+
+	print "Ticket Creado"
+	print client.tc.TicketCreate(t,a)
+
+
+
 cnx = mysql.connector.connect(**config)
 
 rango_ips=getIPS(cnx)
 #admin_id=buscaIP(rango_ips,'10.0.0.5')
 #print admin_id
 #dataAdmin(cnx,admin_id)
-lista = readCSV('ejemplo.csv')
+lista = readCSV('reporte.csv')
 for l in lista:
 	print "-------------------------------------------------------------------------------------------------------"
 	body="ASN: "+l[0]+" IP: "+l[1]+" Fecha: "+l[2]+" Evento: "+l[3]+" Dispositivo: "+l[4]+" Identificador: "+l[5]+" Alerta: "+l[6]+" ASN nombre: " + l[7]
@@ -79,6 +106,10 @@ for l in lista:
 	admin_id=buscaIP(rango_ips,l[1])
 	if admin_id != None:
 		print "admin id: "+ str(admin_id)
-		dataAdmin(cnx,admin_id)
+		admins=dataAdmin(cnx,admin_id)
+		for a in admins:
+			print a[0]
+			print a[1]
+			createTicket(l[6],l[6],body,a[1])
 cnx.close()
 
