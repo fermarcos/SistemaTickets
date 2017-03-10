@@ -4,6 +4,8 @@
 #Modulo de integracion con el sistema OTRS
 #Integrantes:
 #	Fernando Marcos Parra Arroyo
+#   Jenifer Martínez Casares 
+#	Fernando Reyes Alberdo
 #-----------------------------------------
 import mysql.connector
 from netaddr import iter_iprange,IPNetwork
@@ -11,6 +13,13 @@ import csv
 from otrs.ticket.template import GenericTicketConnectorSOAP
 from otrs.client import GenericInterfaceClient
 from otrs.ticket.objects import Ticket, Article, DynamicField, Attachment
+import random
+#nombre de archivo a analizar
+filename="ejemplo.csv"
+
+#error log
+archivo=open('error.log','a')
+
 
 #datos para la conexion a la base de datos
 config = {
@@ -46,7 +55,7 @@ def getData( conn ,table,field_id ,value_id):
 
 #funcion que obtiene el id del administrador  al cual petenece una determinadad IP
 def buscaIP (ips,encontrar) :
-    for ip in ips:
+	for ip in ips:
 		#print ip
 		hosts=[]
 		for ipn in IPNetwork(ip[0]).iter_hosts():
@@ -61,6 +70,8 @@ def buscaIP (ips,encontrar) :
 				print "ip encontrada: " +m
 				#print "ENCONTRADAAAAA :D"
 				return ip[3]
+	archivo.write("ip: "+encontrar+" no encontrada\n")	 
+	print "ip: "+encontrar+" no encontrada"
 			
 #Funcion recibe como parametro un archivo csv y regresa una lista con los campos
 def readCSV(archivo):
@@ -72,64 +83,64 @@ def readCSV(archivo):
 				lista.append(row)
 	return lista
 
-
-#funcion que crea un ticket
-def createTicket(titulo,asunto,cuerpo,responsable):
+#Iniciar sesion con un usuario del sistema de tckets
+def initSession(user,passwd):
 	server_uri = r'http://localhost/otrs/nph-genericinterface.pl'
 	webservice_name = 'GenericTicketConnectorSOAP'
 	client = GenericInterfaceClient(server_uri, tc=GenericTicketConnectorSOAP(webservice_name))
 
-	client.tc.SessionCreate(user_login='jmartinez', password='hola123,')
+	client.tc.SessionCreate(user_login=user, password=passwd)
 
+	return client
+
+#funcion que crea un ticket
+def createTicket(cliente,titulo,asunto,cuerpo,responsable):
 	import mimetypes
 	import base64
 
-	t = Ticket(State='new', Priority='3 normal', Queue='Postmaster',Title=titulo, CustomerUser='fernando@gmail.com',Responsible=responsable)
+	priorities=	['1 very low', '2 low', '3 normal', '4 high', '5 very high']
+	prior=random.choice(priorities)
+	print prior
+
+	lock=	['lock','unlock']
+	bloqueado=random.choice(lock)
+	print bloqueado
+
+	states = ['new', 'open', 'closed successful', 'closed unsuccessful', 'merged','pending auto close+','pending auto close-','pending reminder','removed']
+	state=random.choice(states)
+	print state
+
+	t = Ticket(State=state, Priority=prior, Queue='Postmaster',Title=titulo, CustomerUser='fernando@gmail.com',Responsible=responsable,Lock=bloqueado)
 	a = Article(NoAgentNotify=1,Subject=asunto,Body=cuerpo,Charset='UTF8',MimeType='text/plain',SenderType='customer',ArticleType='email-external',From='fernando@gmail.com',To=responsable)
 
-	
-	print client.tc.TicketCreate(t,a)
+	print cliente.tc.TicketCreate(t,a)
 	print "Ticket Creado"
 
+def main():
+	cnx = mysql.connector.connect(**config)
+	cliente=initSession('jmartinez','hola123,')
 
-cnx = mysql.connector.connect(**config)
+	print "+++++++++++++++++++++++++++++++++++++++++++++++++"
+	print "ADMINISTRADORES"
+	print "+++++++++++++++++++++++++++++++++++++++++++++++++"
 
-print "+++++++++++++++++++++++++++++++++++++++++++++++++"
-print "ADMINISTRADORES"
-print "+++++++++++++++++++++++++++++++++++++++++++++++++"
+	rango_ips=getIPS(cnx,'administrador_id','administrador')
+	lista = readCSV(filename)
+	for l in lista:
+		print "-------------------------------------------------------------------------------------------------------"
+		body="ASN: "+l[0]+" IP: "+l[1]+" Fecha: "+l[2]+" Evento: "+l[3]+" Dispositivo: "+l[4]+" Identificador: "+l[5]+" Alerta: "+l[6]+" ASN nombre: " + l[7]
+		print body
+		admin_id=buscaIP(rango_ips,l[1])
+		if admin_id != None:
+			print "admin id: "+ str(admin_id)
+			admins=getData(cnx,'administrador','administrador_id',admin_id)
+			for a in admins:
+				print "nombre: "+a[0] #nombre del admin
+				print "correo: "+a[1] #correo del admin
+				createTicket(cliente,l[6],l[6],body,a[1])
+	#cerramos la conexion a la base de datos
+	cnx.close()
+	#se cierra el archivo de error
+	archivo.close()
 
-rango_ips=getIPS(cnx,'administrador_id','administrador')
-lista = readCSV('reporte.csv')
-for l in lista:
-	print "-------------------------------------------------------------------------------------------------------"
-	body="ASN: "+l[0]+" IP: "+l[1]+" Fecha: "+l[2]+" Evento: "+l[3]+" Dispositivo: "+l[4]+" Identificador: "+l[5]+" Alerta: "+l[6]+" ASN nombre: " + l[7]
-	print body
-	admin_id=buscaIP(rango_ips,l[1])
-	if admin_id != None:
-		print "admin id: "+ str(admin_id)
-		admins=getData(cnx,'administrador','administrador_id',admin_id)
-		for a in admins:
-			print "nombre: "+a[0] #nombre del admin
-			print "correo: "+a[1] #correo del admin
-			createTicket(l[6],l[6],body,a[1])
-
-print "+++++++++++++++++++++++++++++++++++++++++++++++++"
-print "ESPECIALISTAS"
-print "+++++++++++++++++++++++++++++++++++++++++++++++++"
-
-rango_ips=getIPS(cnx,'especialista_id','especialista')
-lista = readCSV('reporte.csv')
-for l in lista:
-	print "-------------------------------------------------------------------------------------------------------"
-	body="ASN: "+l[0]+" IP: "+l[1]+" Fecha: "+l[2]+" Evento: "+l[3]+" Dispositivo: "+l[4]+" Identificador: "+l[5]+" Alerta: "+l[6]+" ASN nombre: " + l[7]
-	print body
-	espec_id=buscaIP(rango_ips,l[1])
-	if espec_id != None:
-		print "especialista id: "+ str(espec_id)
-		especialistas=getData(cnx,'especialista','especialista_id',espec_id)
-		for esp in especialistas:
-			print "nombre: "+esp[0] #nombre del especialista
-			print "correo: "+esp[1] #correo del especialista
-			createTicket(l[6],l[6],body,esp[1])
-
-cnx.close()
+main()
